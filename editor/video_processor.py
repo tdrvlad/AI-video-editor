@@ -1,5 +1,7 @@
+from editor.cut_media import cut_video
 from editor.subtitles import add_subtitles_to_frames
-from editor.video_cuts import merge_overlapping_cuts, sync_transcription_to_pauses
+from editor.cut_media import cut_media
+from editor.video_segments_processing import merge_overlapping_cuts, sync_transcription_to_pauses
 from transcriptions.transcript import merge_transcript_words
 from transcriptions.text_processing import process_special_characters
 from typing import List, Tuple
@@ -10,7 +12,7 @@ from media_archive.media_archive import MediaArchive
 from transcriptions.objects import Language, Transcription
 from voice_segmentation import detector
 from voice_segmentation.voice_activity_detection import VoiceDetector
-from moviepy.editor import VideoFileClip, concatenate_videoclips
+from moviepy.editor import VideoFileClip
 from llm.calls import find_repetitions_timestamps, correct_transcription
 import os
 import dotenv
@@ -19,41 +21,6 @@ dotenv.load_dotenv()
 
 SOURCE_VIDEOS_DIR = os.getenv("SOURCE_VIDEOS_DIR")
 RESULT_VIDEOS_DIR = os.getenv("RESULT_VIDEOS_DIR")
-
-
-def cut_video(file_path: str, output_dir_path: str, cuts: List[Tuple[float, float]], save_cuts: bool = True):
-
-    video = VideoFileClip(file_path)
-    file_name = os.path.basename(file_path)
-
-    result_video_filename = f"cut_{file_name}"
-    result_video_file_path = os.path.join(output_dir_path, result_video_filename)
-
-    cuts_dir = os.path.join(output_dir_path, "cuts")
-    os.makedirs(cuts_dir, exist_ok=True)
-
-    video_cuts = []
-    last_end = 0
-    for start, end in sorted(cuts):
-        if start > last_end:
-            video_cuts.append(video.subclip(last_end, start))
-        last_end = end
-    if last_end < video.duration:
-        video_cuts.append(video.subclip(last_end, video.duration))
-
-    result_video = concatenate_videoclips(video_cuts)
-    result_video.write_videofile(result_video_file_path, codec="libx264")
-
-    if save_cuts:
-        for i, clip in enumerate(video_cuts):
-            clip.write_videofile(os.path.join(cuts_dir, f"{i}_{file_name}"), codec="libx264")
-
-    result_video.close()
-    video.close()
-    for clip in video_cuts:
-        clip.close()
-
-    return result_video_file_path
 
 
 def add_subtitles_to_video(file_path: str, output_dir_path: str, transcription: Transcription):
@@ -83,7 +50,7 @@ def process_video(
 ):
 
     if not generate_subtitles:
-        result_video_path = cut_video(
+        result_video_path = cut_media(
             file_path=file_path,
             output_dir_path=output_dir_path,
             cuts=cuts,
@@ -130,7 +97,8 @@ class VideoProcessor:
             language: str = Language.english,
             correct_grammar: bool = True,
             generate_subtitles: bool = True,
-            find_repetitions: bool = True
+            find_repetitions: bool = True,
+            save_cuts: bool = False
     ):
 
         file_path = os.path.join(self.source_videos_dir, file_name)
@@ -198,7 +166,7 @@ class VideoProcessor:
             transcription=transcription,
             output_dir_path=result_dir,
             generate_subtitles=generate_subtitles,
-            save_cuts=False
+            save_cuts=save_cuts
         )
 
         return result_video_path
@@ -207,10 +175,11 @@ class VideoProcessor:
 if __name__ == '__main__':
     video_processor = VideoProcessor()
     video_processor.process_video(
-        file_name='What is intelligence.m4a',
+        file_name='what-is-intelligence.mp3',
         language=Language.english,
         correct_grammar=False,
         generate_subtitles=False,
-        find_repetitions=False
+        find_repetitions=False,
+        save_cuts=True
     )
     # video_processor.process_video('demo-en.mp4', language=Language.english)
