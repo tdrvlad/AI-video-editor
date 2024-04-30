@@ -13,7 +13,7 @@ from transcriptions.objects import Language, Transcription
 from voice_segmentation import detector
 from voice_segmentation.voice_activity_detection import VoiceDetector
 from moviepy.editor import VideoFileClip
-from llm.calls import find_repetitions_timestamps, correct_transcription
+from llm.calls import find_repetitions_timestamps, find_parts, correct_transcription
 import os
 import dotenv
 
@@ -98,7 +98,9 @@ class VideoProcessor:
             correct_grammar: bool = True,
             generate_subtitles: bool = True,
             find_repetitions: bool = True,
-            save_cuts: bool = False
+            save_cuts: bool = False,
+            extract_relevant: bool = False,
+            split_into_parts: bool = True
     ):
 
         file_path = os.path.join(self.source_videos_dir, file_name)
@@ -145,6 +147,7 @@ class VideoProcessor:
                 language=media.language
             )
             media.corrected_transcription = corrected_transcription
+            self.media_archive.add_media(media)
 
         transcription = media.corrected_transcription if media.corrected_transcription is not None else media.transcription
 
@@ -156,6 +159,17 @@ class VideoProcessor:
                 language=media.language
             )
             media.repetition_segments = repetition_segments
+            self.media_archive.add_media(media)
+
+        if split_into_parts and media.parts is None:
+            print("Identifying parts.")
+            parts_transcriptions = find_parts(
+                text_str=text,
+                transcription=transcription,
+                language=media.language
+            )
+            media.parts = parts_transcriptions
+            self.media_archive.add_media(media)
 
         cuts = media.pause_segments if media.repetition_segments is None else \
             merge_overlapping_cuts(media.repetition_segments + media.pause_segments)
@@ -173,13 +187,16 @@ class VideoProcessor:
 
 
 if __name__ == '__main__':
+
     video_processor = VideoProcessor()
     video_processor.process_video(
-        file_name='what-is-intelligence.mp3',
-        language=Language.english,
+        file_name='vid-1.mp4',
+        language=Language.romanian,
         correct_grammar=False,
         generate_subtitles=False,
         find_repetitions=False,
-        save_cuts=True
+        save_cuts=False,
+        extract_relevant=False,
+        split_into_parts=False
     )
     # video_processor.process_video('demo-en.mp4', language=Language.english)

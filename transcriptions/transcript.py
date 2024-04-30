@@ -15,6 +15,7 @@ def merge_transcript_words(transcribed_words: List[TranscribedWord], speech_segm
         list of str: Each string is a paragraph formed from words between pauses.
         """
     paragraphs = []
+    timestamped_paragraphs = []
     current_paragraph_words = []
     pause_index = 0
 

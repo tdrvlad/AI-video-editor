@@ -1,3 +1,45 @@
+IDEAS_SUMMARY = """
+Here is a transcript of an audio in {language} representing a monologue / discussion on a specific topic.
+'''
+{text}
+'''
+Identify the main ideas / arguments being made. Highlight what is relevant.
+Describe where each of these ideas start and end in the span of the text
+"""
+
+
+SPLIT_TRANSCRIPT = """
+Here is a transcript of an audio in {language} representing a monologue / discussion on a specific topic.
+'''
+{text}
+'''
+Here are the main ideas i the text:
+'''
+{ideas}
+'''
+
+We now need to split the transcript into the parts corresponding to each idea.
+We have the transcript with timestamps for each word. 
+Your task is to identify based on the transcript and the summary of the ideas when each part starts and ends.
+
+This is the complete transcript:
+'''
+{timestamps}
+'''
+
+List the start and end timestamps corresponding to each idea. 
+Return a JSON list of dicts with the fields:
+- start: timestamp in seconds
+- end: timestamp in seconds
+- idea: idea summary
+
+Return only the JSON object without any additional text or explanation
+"""
+
+
+
+
+
 HIGHLIGHT_MISTAKES = """
 Here is a transcript of an audio file with a speech in {language}:
 '''

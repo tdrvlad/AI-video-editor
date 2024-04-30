@@ -20,6 +20,8 @@ class Media(BaseModel):
     speech_segments: Optional[List[Tuple[float, float]]] = None
     pause_segments: Optional[List[Tuple[float, float]]] = None
     repetition_segments: Optional[List[Tuple[float, float]]] = None
+    relevant_segments: Optional[List[Tuple[float, float]]] = None
+    parts: Optional[List[Transcription]] = None
 
 
 class MediaArchive:
