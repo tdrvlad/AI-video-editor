@@ -3,7 +3,7 @@ import dotenv
 import json
 from typing import Optional, List, Tuple
 from pydantic import BaseModel
-from transcriptions.objects import Transcription
+from objects.transcription import Transcription
 
 dotenv.load_dotenv()
 

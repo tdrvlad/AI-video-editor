@@ -3,11 +3,11 @@ import dotenv
 from typing import List, Tuple, Optional
 import json
 import requests
-from media_archive import archive
-from media_archive.media_archive import MediaArchive, Media
+from objects.media_archive import MediaArchive, Media
 import time
 
-from transcriptions.objects import Language, TranscribedWord, Transcription
+from objects.transcription import TranscribedWord, Transcription
+from objects.language import Language, transcription_language_dict
 
 dotenv.load_dotenv()
 
@@ -24,22 +24,16 @@ class TranscriptClient:
     queued = "QUEUED"
     trasncripting = "TRANSCRIPTING"
 
-    def __init__(self, api_key: str = API_KEY, media_archive: MediaArchive = archive):
-        self.media_archive = media_archive
+    def __init__(self, api_key: str = API_KEY):
+        self.media_archive = MediaArchive()
         self.api_key = api_key
 
-    def submit(self, file_path: str, language: str = Language.romanian) -> Media:
+    def submit(self, file_path: str, language: str = Language.romanian) -> str:
         """Trigger the transcription process for the uploaded file."""
-
-        if self.media_archive.media_exists(file_path):
-            print("Media already processed.")
-            media = self.media_archive.get_media(file_path)
-            return media
-
-        print("Processing new media.")
+        print("Sending media for transcription.")
 
         payload = {
-            'language': language,
+            'language': transcription_language_dict.get(language),
             'transcribe': True
         }
         headers = {
@@ -59,16 +53,10 @@ class TranscriptClient:
 
         data = json.loads(response.text)
         transcription_uid = data["uid"]
-        media = Media(
-            file_path=file_path,
-            transcription_uuid=transcription_uid,
-            language=language
-        )
-        self.media_archive.add_media(media)
-        return media
+        return transcription_uid
 
-    def get_transcription(self, media: Media) -> Tuple[str, Transcription]:
-        url = f"{self.get_transcript_url}{media.transcription_uuid}"
+    def get_transcription(self, transcription_uuid: str) -> Tuple[str, Transcription]:
+        url = f"{self.get_transcript_url}{transcription_uuid}"
         headers = {
             'Authorization': f'Bearer {self.api_key}'
         }
@@ -84,14 +72,14 @@ class TranscriptClient:
         )
         return state, transcript
 
-    def get_transcription_with_wait(self, media: Media, max_wait: int = 50) -> Optional[Transcription]:
+    def get_transcription_with_wait(self, transcription_uuid: str, max_wait: int = 50) -> Optional[Transcription]:
         start_time = time.time()
-        state, transcript = self.get_transcription(media)
+        state, transcript = self.get_transcription(transcription_uuid)
 
         while state != self.transcripted and time.time() - start_time < max_wait:
             print(f"Transcription in state {state}. Waiting...")
             time.sleep(10)
-            state, transcript = self.get_transcription(media)
+            state, transcript = self.get_transcription(transcription_uuid)
 
         if state == self.transcripted:
             print(f"Transcription finished and successful.")
@@ -110,14 +98,3 @@ def process_transcript(transcript: List[dict]) -> List[TranscribedWord]:
         for word_dict in transcript
     ]
     return transcribed_words
-
-
-def test():
-    file_path = "data/source/sample-1.mp4"
-    transcript_client = TranscriptClient()
-    transcript = transcript_client.get_transcription(file_path)
-    print(transcript)
-
-
-if __name__ == "__main__":
-    test()

@@ -3,11 +3,6 @@ from typing import List
 from pydantic import BaseModel
 
 
-class Language:
-    romanian: str = 'ro_RO'
-    english: str = 'en_GB'
-
-
 class TranscribedWord(BaseModel):
     word: str
     start: float
@@ -38,7 +33,3 @@ def test():
     ]
     transcription = Transcription(words=words)
     print(transcription)
-
-
-if __name__ == '__main__':
-    test()

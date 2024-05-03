@@ -4,8 +4,7 @@ import numpy as np
 from PIL import ImageFont, Image, ImageDraw
 from moviepy.video.VideoClip import VideoClip
 
-from transcriptions.objects import TranscribedWord, Transcription
-
+from objects.transcription import TranscribedWord, Transcription
 
 FONT_PATH = "./fonts/arial.ttf"
 

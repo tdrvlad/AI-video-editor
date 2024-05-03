@@ -1,7 +1,8 @@
 import re
 from typing import List
 
-from transcriptions.objects import TranscribedWord, Language, Transcription
+from objects.transcription import TranscribedWord, Transcription
+from objects.language import Language
 
 
 def normalize_text(text: str) -> List[str]:

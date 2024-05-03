@@ -1,6 +1,6 @@
 from typing import List, Tuple
 
-from transcriptions.objects import TranscribedWord
+from objects.transcription import TranscribedWord
 
 
 def merge_transcript_words(transcribed_words: List[TranscribedWord], speech_segments: List[Tuple[float, float]]):

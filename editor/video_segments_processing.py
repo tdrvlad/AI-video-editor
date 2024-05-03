@@ -1,6 +1,6 @@
 from typing import List, Tuple
 
-from transcriptions.objects import TranscribedWord, Transcription
+from objects.transcription import TranscribedWord, Transcription
 
 
 def merge_overlapping_cuts(cuts: List[Tuple[float, float]], min_duration: float = 0.3) -> List[Tuple[float, float]]:

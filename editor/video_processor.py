@@ -8,8 +8,9 @@ from typing import List, Tuple
 from transcriptions import transcriptor
 from transcriptions.api_client import TranscriptClient
 from media_archive import archive
-from media_archive.media_archive import MediaArchive
-from transcriptions.objects import Language, Transcription
+from objects.media_archive import MediaArchive, Media
+from objects.transcription import Transcription
+from objects.language import Language
 from voice_segmentation import detector
 from voice_segmentation.voice_activity_detection import VoiceDetector
 from moviepy.editor import VideoFileClip
@@ -74,6 +75,37 @@ def process_video(
     return result_video_path
 
 
+def cut_video_pauses(
+    file_name: str,
+    min_duration_on: float = 0.0,
+    min_duration_off: float = 0.0,
+    pause_margin_start: float = 0.0,
+    pause_margin_end: float = 0.0
+):
+    file_path = os.path.join(SOURCE_VIDEOS_DIR, file_name)
+    result_dir = os.path.join(RESULT_VIDEOS_DIR, file_name.split(".")[0])
+
+    voice_detector = VoiceDetector(
+        min_duration_on=min_duration_on,
+        min_duration_off=min_duration_off,
+    )
+
+    _, pause_segments = voice_detector(
+        file_path=file_path,
+        pause_margin_start=pause_margin_start,
+        pause_margin_end=pause_margin_end
+    )
+
+    result_video_path = cut_video(
+        file_path=file_path,
+        output_dir_path=result_dir,
+        cuts=pause_segments,
+        save_cuts=True
+    )
+    return result_video_path
+
+
+
 class VideoProcessor:
     pause_margin: Tuple[float, float] = (0.0, 0.2)
 
@@ -100,7 +132,8 @@ class VideoProcessor:
             find_repetitions: bool = True,
             save_cuts: bool = False,
             extract_relevant: bool = False,
-            split_into_parts: bool = True
+            split_into_parts: bool = True,
+            pause_margin: Tuple[float, float] = (0.0, 0.2)
     ):
 
         file_path = os.path.join(self.source_videos_dir, file_name)
@@ -110,6 +143,26 @@ class VideoProcessor:
             print("Loading cached media.")
             media = self.media_archive.get_media(file_path)
             assert media.language == language, "Languages mismatch from ached media."
+
+        else:
+            media = Media(
+                file_path=file_path,
+                language=language
+            )
+            self.media_archive.add_media(media)
+
+        # Process video pauses
+        if media.speech_segments is None:
+            print("Identifying speech pauses.")
+            speech_segments, pause_segments = self.voice_detector(file_path, pause_margin=self.pause_margin)
+            media.pause_segments = pause_segments
+            media.speech_segments = speech_segments
+            self.media_archive.add_media(media)
+
+
+
+
+
         else:
             print("Uploading media to Transcriptions API.")
             media = self.transcript_client.submit(file_path, language)
@@ -187,16 +240,24 @@ class VideoProcessor:
 
 
 if __name__ == '__main__':
-
-    video_processor = VideoProcessor()
-    video_processor.process_video(
-        file_name='vid-1.mp4',
-        language=Language.romanian,
-        correct_grammar=False,
-        generate_subtitles=False,
-        find_repetitions=False,
-        save_cuts=False,
-        extract_relevant=False,
-        split_into_parts=False
+    cut_video_pauses(
+        'vid-1.mp4',
+        pause_margin_start=0.25,
+        pause_margin_end=0.5,
+        min_duration_off=0.3,
+        min_duration_on=1.0
     )
+
+    # video_processor = VideoProcessor()
+    # video_processor.process_video(
+    #     file_name='vid-1.mp4',
+    #     language=Language.romanian,
+    #     correct_grammar=False,
+    #     generate_subtitles=False,
+    #     find_repetitions=False,
+    #     save_cuts=False,
+    #     extract_relevant=False,
+    #     split_into_parts=False,
+    #     pause_margin=(0.3, 0.5)
+    # )
     # video_processor.process_video('demo-en.mp4', language=Language.english)

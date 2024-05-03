@@ -17,10 +17,26 @@ def parse_segments(segments_list) -> List[Tuple[float, float]]:
     return parsed_segments
 
 
+def merge_intervals(intervals, k):
+    intervals.sort(key=lambda x: x[0])
+    merged_intervals = []
+    current_start, current_end = intervals[0]
+
+    for start, end in intervals[1:]:
+        # If the current end is close enough to the next start, merge them
+        if current_end + k >= start:
+            # Extend the current interval
+            current_end = max(current_end, end)
+        else:
+            # Append the current interval and move to the next
+            merged_intervals.append((current_start, current_end))
+            current_start, current_end = start, end
+
+    merged_intervals.append((current_start, current_end))
+    return merged_intervals
+
+
 class VoiceDetector:
-    pause_margin: Tuple[float, float] = (0.0, 0.0)
-    min_duration_on: float = 0.0
-    min_duration_off: float = 0.0
     # onset: float = 0.5
     # offset: float = 0.5
     """
@@ -32,60 +48,62 @@ class VoiceDetector:
     More details about those hyper-parameters are provided in the paper: https://arxiv.org/abs/2104.04045 
     """
 
-    def __init__(self, model_id: str = VOICE_DETECTION_MODEL_ID):
+    def __init__(self, model_id: str = VOICE_DETECTION_MODEL_ID, min_duration_on: float = 0.0, min_duration_off: float = 0.0):
         self.model = Model.from_pretrained(
             model_id,
             use_auth_token=HF_TOKEN
         )
+        self.min_duration_on = min_duration_on
+        self.min_duration_off = min_duration_off
         self.pipeline = VoiceActivityDetection(segmentation=self.model)
         params = {
             # "onset": self.onset,
             # "offset": self.offset,
-            "min_duration_on": self.min_duration_on,
-            "min_duration_off": self.min_duration_off
+            "min_duration_on": min_duration_on,
+            "min_duration_off": min_duration_off
         }
         self.pipeline.instantiate(params)
 
-    def __call__(self, file_path: str, pause_margin: Tuple[float, float] = None) -> Tuple[List[Tuple[float, float]], List[Tuple[float, float]]]:
+    def get_speech_segments(self, file_path: str, margin_start: float = 0.0, margin_end: float = 0.0) -> List[Tuple[float, float]]:
         """
-        Returns the speech segments and the pause segments for the given file.
+        Returns the start and end timestamps for all the detected speech segments in the file.
         A segment is given as (start, end) timestamps in seconds
         :param file_path: Path to the file, accepts videos too.
-        :return: The speech and pause segments
+        :param margin_start: Margin to be added to the beginning of the speech segment
+        :param margin_end: Margin to be added at the end of the speech segment
+        :return: The speech segments
         """
-
         voice_activity = self.pipeline(file_path)
         timeline = voice_activity.get_timeline()
-        pause_timeline = timeline.gaps()
 
         speech_segments = parse_segments(timeline.segments_list_)
-        pause_segments = parse_segments(pause_timeline.segments_list_)
+        print(speech_segments)
 
-        # Add pause margins
-        if pause_margin is None:
-            pause_margin = self.pause_margin
-        print(f"Adding pause margin {pause_margin}")
-        pause_segments = [(pause[0] + pause_margin[0], pause[1] - pause_margin[1]) for pause in pause_segments]
+        if margin_start > 0:
+            print(f"Extending the speech segments with {margin_start} seconds from the start.")
+        if margin_start < 0:
+            print(f"Shortening the speech segments with {margin_start} seconds from the start.")
+        if margin_end > 0:
+            print(f"Extending the speech segments with {margin_end} seconds from the end.")
+        if margin_end < 0:
+            print(f"Shortening the speech segments with {margin_end} seconds from the end.")
 
-        # Add segments before first and after last utterance
-        first_pause = (0.0, speech_segments[0][0] - pause_margin[1])
-        last_pause = (speech_segments[-1][1] + pause_margin[0], 9999)
+        speech_segments = [(seg[0] - margin_start, seg[1] + margin_end) for seg in speech_segments]
 
-        pause_segments = [first_pause] + pause_segments + [last_pause]
-        print(f"\nIdentified {len(pause_segments)} speech pauses.")
-        return speech_segments, pause_segments
+        # Discard speech segments that are too short as a result of the margin adjustment
+        speech_segments = [seg for seg in speech_segments if seg[1] - seg[0] > self.min_duration_on]
 
-    def get_pauses(self, file_path: str, pause_margin: Tuple[float, float] = None) -> List[Tuple[float, float]]:
-        _, pause_segments = self.__call__(file_path, pause_margin=pause_margin)
-        return pause_segments
+        # Merge the segments that have a too short pause between them
+        speech_segments = merge_intervals(speech_segments, k=self.min_duration_off)
 
-    def get_speech(self, file_path: str, pause_margin: Tuple[float, float] = None) -> List[Tuple[float, float]]:
-        speech_segments, _ = self.__call__(file_path, pause_margin=pause_margin)
         return speech_segments
 
 
 if __name__ == '__main__':
-    voice_detector = VoiceDetector()
-    speech_segments, _ = voice_detector("./data/source/sample-2.mp4")
-    print(speech_segments)
+    voice_detector = VoiceDetector(min_duration_off=0.1)
+    segments = voice_detector.get_speech_segments("./data/source/sample-3.mp4")
+    print(segments)
 
+    voice_detector = VoiceDetector(min_duration_off=1.0)
+    segments = voice_detector.get_speech_segments("./data/source/sample-3.mp4", margin_start=0.2, margin_end=0.3)
+    print(segments)
