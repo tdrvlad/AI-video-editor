@@ -114,19 +114,80 @@ def correct_transcription(file_name: str, segments: List[MediaSegment], redo: bo
     print("Finished correcting the transcript.")
 
 
-def filter_duplicates(segments: List[MediaSegment]):
-    print("\n\nFiltering Duplicates")
-
-    # Discard previous filtering
+def unfilter(segments: List[MediaSegment]):
     for segment in segments:
         segment.removed = False
         save_media_segment(segment)
 
+
+def manual_filter(segments: List[MediaSegment], ignore_already_filtered: bool = True):
+    print("\nManually filtering transcripts.")
+    if ignore_already_filtered:
+        segments = [segment for segment in segments if not segment.removed]
+
     segments_dict = {i: segment for i, segment in enumerate(segments)}
     segments_texts_dict = {i: f"{segment.corrected_text} ({segment.text})" for i, segment in segments_dict.items()}
 
+    indexed_text = "\n\n".join([f"{idx}: '{text}'" for idx, text in segments_texts_dict.items()])
+    print(f"Transcription segments:\n{indexed_text}")
+
+    input_string = input("Enter a list of indexes to remove (separated by spaces):")
+
+    if not len(input_string):
+        return
+
+    try:
+        indexes = [int(num) for num in input_string.split()]
+        print("Removing:", indexes)
+
+        for index in indexes:
+            segment = segments_dict.get(index)
+            if segment is None:
+                print(f"No segment for index {index}.")
+            segment.removed = True
+            save_media_segment(segment)
+    # 6 7 14 15 16 19 22 23 24 28 30 31 32 34 35 36 38 40 43 45
+    except ValueError:
+        print("Error: Please make sure to enter only integers.")
+
+
+def manual_recover(segments: List[MediaSegment]):
+    print("\nRecovering transcripts.")
+    segments = [segment for segment in segments if segment.removed]
+
+    segments_dict = {i: segment for i, segment in enumerate(segments)}
+    segments_texts_dict = {i: f"{segment.corrected_text} ({segment.text})" for i, segment in segments_dict.items()}
+
+    indexed_text = "\n\n".join([f"{idx}: '{text}'" for idx, text in segments_texts_dict.items()])
+    print(f"Removed transcription segments:\n{indexed_text}")
+
+    input_string = input("Enter a list of indexes to recover (separated by spaces):")
+
+    if not len(input_string):
+        return
+
+    try:
+        indexes = [int(num) for num in input_string.split()]
+        print("Recovering:", indexes)
+
+        for segment in [segments_dict.get(i) for i in indexes]:
+            segment.removed = False
+            save_media_segment(segment)
+
+    except ValueError:
+        print("Error: Please make sure to enter only integers.")
+
+
+def filter_duplicates(segments: List[MediaSegment], ignore_already_filtered: bool = True):
+    print("\n\nFiltering Duplicates")
+    if ignore_already_filtered:
+        segments = [segment for segment in segments if not segment.removed]
+
+    segments_dict = {i: segment for i, segment in enumerate(segments)}
+    # segments_texts_dict = {i: f"{segment.corrected_text} ({segment.text})" for i, segment in segments_dict.items()}
+
     repetitions = get_repetitions(
-        segments_texts_dict=segments_texts_dict
+        segments_dict=segments_dict
     )
 
     for repetition in repetitions:
@@ -155,22 +216,35 @@ def filter_duplicates(segments: List[MediaSegment]):
     print(f"Removed {len(removed_segments)} segments due to repetitions.")
 
 
+def filter_file_removed(segments: List[MediaSegment]):
+    for segment in segments:
+        if not os.path.exists(segment.media_file_path):
+            print(f"Video for segment {segment.corrected_text} has been removed.")
+            segment.removed = True
+            save_media_segment(segment)
+
+
 def main(file_name: str, language: str):
     segments = load_media_segments(file_name=file_name)
     segments = process_transcription(segments, language=language)
 
     for segment in segments:
-        print(f"{segment.timestamp_start}-{segment.timestamp_end}:\n{segment.text}")
+        print(segment.corrected_text)
+        # print(f"{segment.timestamp_start}-{segment.timestamp_end}:\n{segment.text}")
 
     correct_transcription(file_name=file_name, segments=segments)
 
-    print("Corrected")
-    for segment in segments:
-        print(f"{segment.timestamp_start}-{segment.timestamp_end}:\n{segment.corrected_text}")
-
+    # unfilter(segments)
     # filter_duplicates(segments)
+    # manual_filter(segments)
+    # manual_recover(segments)
+    filter_file_removed(segments)
 
-
+    final_segments = [segment for segment in segments if not segment.removed]
+    print("\n\nFinal Video Transcript:")
+    for segment in final_segments:
+        # print(f"{segment.timestamp_start}-{segment.timestamp_end}:\n{segment.corrected_text}")
+        print(segment.corrected_text)
 
 
 

@@ -71,45 +71,61 @@ Here is the response of a LLM providing a list of indexes.
 Extract and return the list of indexes as a python list of ints, without any additional text.
 """
 
+IS_REPETITION = """
+I am analyzing a transcript in {language} where some sentences represent blabber. This happens when the speaker starts an idea but does not complete it, and then the same idea is restarted in the next sentence. Often, these pairs of consecutive sentences begin with identical words and, despite some differences, have a similar overall structure.
+
+Here are two consecutive sentences for analysis:
+
+    Sentence 1: "{sentence_1}"
+    Sentence 2: "{sentence_2}"
+
+Task:
+
+    Determine which sentence is likely blabber, considering that blabber typically starts an idea without completing it and is generally less coherent or complete than the following sentence.
+    Identify the correct form, which is usually the more coherent and complete version of the idea.
+
+Instructions:
+
+    If both sentences are unrelated and do not exhibit characteristics of blabber, respond with 'none'.
+    If Sentence 1 is blabber, respond with 'sentence_1'.
+    If Sentence 2 is blabber, respond with 'sentence_2'.
+
+Respond only with one of these strings: 'none', 'sentence_1', or 'sentence_2', based on your analysis, without any aditional text.
+"""
+
 FIND_REPETITIONS = """
-Here is a transcript of of a speech, provided as individual sentences.
+Here is a transcript of a speech in  {language}, provided as individual sentences.
 '''
 {indexed_text}
 '''
-You have both the corrected version of the transcription and the raw text, that might contain mistakes, in brackets.
 
-The speaker sometimes stutters - starts a sentence, stops midway, and restarts it.
-This can happen multiple times for the same phrase as the speaker tries to find the correct formulation.
-You can see this in consecutive sentences where very similar words are used.
+Some sentences represent blabber. 
+This happens when the speaker starts an idea but does not complete it, and then the same idea is restarted in the next sentence. 
+Often, these sentences begin with identical words and, despite some differences, have a similar overall structure.
+This can happen over multiple sentences in a row, until the speaker gets the words right.
+Usually, the last sentence in the sequence represents the correct attempt.
 
-Identify where these mistakes happen. 
+Identify where these mistakes happen.
 """
 
 GET_REPETITIONS_INDEXES = """
-Here is a transcript of of a speech, provided as individual sentences.
+Here is a transcript of a speech in  {language}, provided as individual sentences.
 '''
 {indexed_text}
 '''
-You have both the corrected version of the transcription and the raw text, that might contain mistakes, in brackets.
 
-The speaker sometimes stutters - starts a sentence, stops midway, and restarts it.
-This can happen multiple times for the same phrase as the speaker tries to find the correct formulation.
+Some sentences represent blabber. 
+This happens when the speaker starts an idea but does not complete it, and then the same idea is restarted in the next sentence. 
+Often, these sentences begin with identical words and, despite some differences, have a similar overall structure.
+This can happen over multiple sentences in a row, until the speaker gets the words right.
+Usually, the last sentence in the sequence represents the correct attempt.
 
 This is where such mistakes occur:
 {repetitions}
 
-For each mistake, we need to select the correct sentence and eliminate the failed attempts. 
-Decide based on the highlighted sentences, which sentences to keep and which to discard.
-
-There can be multiple failed in a row. 
-Usually, the correct sentence is the last one.
-
-Return a list of JSON dictionaries for each corrected repetition like this:
-- failed_attempts_indexes: list of int indexes of sentences that represent failed attempts.
-- correct_attempt_index: int index representing the correct version of the failed attempts. 
-
-Each failed attempt must have one corresponding correct attempt.
-Each correct attempt can have one or more corresponding failed attempts.
+Return a list of JSON dictionaries for each repetition like this:
+- failed_sentences: list of int indexes of sentences that represent failed attempts.
+- correct_sentence: int index representing the correct version
 
 Return the JSON list of dictionaries without any additional text - only the list of ints
 """

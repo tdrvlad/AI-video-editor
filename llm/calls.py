@@ -3,9 +3,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
 load_dotenv()
 from pydantic import BaseModel
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Dict
 from objects.transcription import TranscribedWord, Transcription
-from llm.prompts import CORRECT_TRANSCRIPTION, CORRECT_GRAMMAR_WITH_SCRIPT, FIND_REPETITIONS, GET_REPETITIONS_INDEXES, GET_SECTION_FROM_SCRIPT
+from objects.media_segment import MediaSegment
+from llm.prompts import CORRECT_TRANSCRIPTION, CORRECT_GRAMMAR_WITH_SCRIPT, IS_REPETITION, FIND_REPETITIONS, GET_REPETITIONS_INDEXES, GET_SECTION_FROM_SCRIPT
 
 
 def parse_output_as_code(output_str: str, language: str = 'json') -> str:
@@ -88,15 +89,18 @@ class Repetition(BaseModel):
     correct_attempt: int
 
 
-def get_repetitions(segments_texts_dict: dict[int, str]) -> List[Repetition]:
+def get_repetitions(segments_dict: Dict[int, MediaSegment]) -> List[Repetition]:
 
-    indexed_text = "\n".join([f"{idx}: '{text}'" for idx, text in segments_texts_dict.items()])
+    language = list(segments_dict.values())[0].language
+    sentences = [f"Sentence {ind}: {segment.corrected_text}" for ind, segment in segments_dict.items()]
+    sentences_string = "\n".join(sentences)
 
-    repetitions = call_llm(
+    repetitions_info = call_llm(
         model_id='gpt-4',
         prompt=FIND_REPETITIONS,
         call_params_dict={
-            "indexed_text": indexed_text
+            "indexed_text": sentences_string,
+            "language": language
         }
     )
 
@@ -104,26 +108,72 @@ def get_repetitions(segments_texts_dict: dict[int, str]) -> List[Repetition]:
         model_id='gpt-4',
         prompt=GET_REPETITIONS_INDEXES,
         call_params_dict={
-            "indexed_text": indexed_text,
-            "repetitions": repetitions
+            "indexed_text": sentences_string,
+            "language": language,
+            "repetitions": repetitions_info
         }
     )
 
-    repetitions = []
+    content = parse_output_as_code(content, 'json')
     try:
-        content = parse_output_as_code(content, 'json')
         repetitions_dicts = eval(content)
         assert isinstance(repetitions_dicts, List)
+        repetitions = []
         for repetition_dict in repetitions_dicts:
             repetitions.append(
                 Repetition(
-                    failed_attempts=[int(i) for i in repetition_dict.get("failed_attempts_indexes")],
-                    correct_attempt=int(repetition_dict.get("correct_attempt_index"))
+                    failed_attempts=repetition_dict.get("failed_sentences"),
+                    correct_attempt=repetition_dict.get("correct_sentence")
                 )
             )
         return repetitions
     except Exception as e:
-        print(f"Unable to parse LLm response: {e}")
+        print(f'Unable to parse LLM response {content}: {e}')
+
+    # repetitions = []
+    # indexes_to_check = list(segments_dict.keys())
+    # checked = False
+    #
+    # while checked is False:
+    #     checked = True
+    #     eliminated_index = None
+    #     kept_index = None
+    #     for i_1, i_2 in zip(indexes_to_check[:-1], indexes_to_check[1:]):
+    #         sentence_1 = segments_dict.get(i_1).corrected_text
+    #         sentence_2 = segments_dict.get(i_2).corrected_text
+    #         language = segments_dict.get(i_1).language
+    #         content = call_llm(
+    #             model_id='gpt-4',
+    #             prompt=IS_REPETITION,
+    #             call_params_dict={
+    #                 "sentence_1": sentence_1,
+    #                 "sentence_2": sentence_2,
+    #                 "language": language
+    #             }
+    #         )
+    #         if "sentence_1" in content:
+    #             eliminated_index = i_1
+    #             kept_index = i_2
+    #             break
+    #
+    #         if "sentence_2" in content:
+    #             eliminated_index = i_2
+    #             kept_index = i_1
+    #             break
+    #
+    #         if 'none' in content:
+    #             pass
+    #
+    #     if eliminated_index is not None:
+    #         repetitions.append(
+    #             Repetition(
+    #                 failed_attempts=[eliminated_index],
+    #                 correct_attempt=kept_index
+    #             )
+    #         )
+    #     indexes_to_check.pop(eliminated_index)
+
+    return repetitions
 
 
 #
