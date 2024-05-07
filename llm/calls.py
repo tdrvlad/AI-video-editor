@@ -2,11 +2,18 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
 load_dotenv()
+import time
 from pydantic import BaseModel
-from typing import List, Tuple, Union, Dict
+from typing import List, Tuple, Union, Dict, Callable, Optional
 from objects.transcription import TranscribedWord, Transcription
 from objects.media_segment import MediaSegment
-from llm.prompts import CORRECT_TRANSCRIPTION, CORRECT_GRAMMAR_WITH_SCRIPT, IS_REPETITION, FIND_REPETITIONS, GET_REPETITIONS_INDEXES, GET_SECTION_FROM_SCRIPT
+from llm.prompts import CORRECT_TRANSCRIPTION, CORRECT_GRAMMAR_WITH_SCRIPT, CORRECT_STRING, FIND_REPETITIONS, GET_REPETITIONS_INDEXES, GET_SECTION, CORRECT_TEXT, FORMAT_BOOL, CORRECT_TEXT_WITH_FEEDBACK
+from typing import List
+
+from langchain.agents import AgentExecutor, create_openai_functions_agent
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
 
 
 def parse_output_as_code(output_str: str, language: str = 'json') -> str:
@@ -15,6 +22,36 @@ def parse_output_as_code(output_str: str, language: str = 'json') -> str:
     if output_str.startswith(startswith) and output_str.endswith(endswith):
         output_str = output_str[len(startswith):][:-len(endswith)]
     return output_str
+
+
+
+def call_llm_agent(model_id: str, prompt: str, tools: List[tool], call_params_dict: dict) -> str:
+    """
+    Call a LLM Agent that uses tools to execute its task.
+    :param model_id: Id of the model to use (gpt-3.5-turbo / gpt-4)
+    :param prompt: Prompt to use for the LLM
+    :param tools: list of callables that the Agent can use
+    :param call_params_dict: values for the parameters of the prompt
+    :return: Return string of the model
+    """
+    model = ChatOpenAI(
+        model=model_id,
+        temperature=0
+    )
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            ("user", prompt),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+            MessagesPlaceholder(variable_name="chat_history", optional=True),
+        ]
+    )
+    runnable = AgentExecutor(
+        agent=create_openai_functions_agent(model, tools, prompt_template),
+        tools=tools,
+        verbose=True
+    )
+    output = runnable.invoke(call_params_dict)
+    return output["output"]
 
 
 def call_llm(model_id: str, prompt: str, call_params_dict: dict) -> str:
@@ -35,10 +72,88 @@ def call_llm(model_id: str, prompt: str, call_params_dict: dict) -> str:
     return response.content
 
 
+
+def llm_bool(answer: str) -> bool:
+    response = call_llm(
+        model_id='gpt-3.5-turbo',
+        prompt=FORMAT_BOOL,
+        call_params_dict={
+            "answer": answer,
+        }
+    )
+    return response.lower() == 'yes'
+
+
+def correct_transcription_text(text: str, script: str, language: str, preview_fn: Optional[Callable] = None, max_retries: int = 5) -> str:
+
+    relevant_script_part = call_llm(
+        model_id='gpt-3.5-turbo',
+        prompt=GET_SECTION,
+        call_params_dict={
+            "query": text,
+            "full_text": script,
+            "language": language
+        }
+    )
+
+    print(f"Relevant from script:\n{relevant_script_part}")
+    check = False
+    trial_and_feedback = None
+
+    while check is False and max_retries > 0:
+        if trial_and_feedback is None:
+            corrected_text = call_llm(
+                model_id='gpt-3.5-turbo',
+                prompt=CORRECT_TEXT,
+                call_params_dict={
+                    "text": text,
+                    "language": language,
+                    "guide": relevant_script_part
+                }
+            )
+        else:
+            trial, feedback = trial_and_feedback
+            corrected_text = call_llm(
+                model_id='gpt-3.5-turbo',
+                prompt=CORRECT_TEXT_WITH_FEEDBACK,
+                call_params_dict={
+                    "text": text,
+                    "language": language,
+                    "trial": trial,
+                    "feedback": feedback
+
+                }
+            )
+        info = f"\n\nCorrecting text:\n'''\n{text}\n'''\nThese are the corrections I made:\n'''\n{corrected_text}\n'''"
+        print(info)
+        question = "Is this correct?"
+        print(question)
+        if preview_fn is not None:
+            preview_fn()
+        user_response = input()
+        if len(user_response):
+            check = llm_bool(user_response)
+        else:
+            check = True
+
+        trial_and_feedback = (corrected_text, user_response)
+
+    return corrected_text
+
+
+def correct_transcription(transcription: Transcription, corrected_text: str, language: str) -> Transcription:
+    corrected_words = []
+    original_words = [w.word for w in transcription.words]
+    corrected_words = corrected_text.split(' ')
+
+
+
+
+
 def correct_grammar_with_script(transcription: Transcription, text: str, script: str, language: str) -> Tuple[str, Transcription]:
     relevant_transcript = call_llm(
         model_id='gpt-3.5-turbo',
-        prompt=GET_SECTION_FROM_SCRIPT,
+        prompt=GET_SECTION,
         call_params_dict={
             "text": text,
             "script": script,
@@ -55,6 +170,28 @@ def correct_grammar_with_script(transcription: Transcription, text: str, script:
         }
     )
     corrected_text = corrected_text.upper()
+    return correct_transcription(
+        transcription=transcription,
+        corrected_text=corrected_text,
+        language=language
+    )
+
+
+def correct_string(raw_string: str, instruction: str, language: str):
+   response = call_llm(
+        model_id='gpt-3.5-turbo',
+        prompt=CORRECT_STRING,
+        call_params_dict={
+            "raw_string": raw_string,
+            "instruction": instruction,
+            "language": language
+        }
+
+   )
+   return response
+
+
+def correct_transcription(transcription: Transcription, corrected_text: str, language: str):
     content = call_llm(
         model_id='gpt-4',
         prompt=CORRECT_TRANSCRIPTION,

@@ -1,64 +1,10 @@
 import os
-import shutil
-from typing import List, Tuple, Optional, Union
+from typing import List, Tuple
 
+from objects.media_clip import MediaClip, concatenate_media_clips
 from objects.media_segment import MediaSegment, save_media_segment, SEGMENTS_META_DIR_NAME, SEGMENTS_DIR_NAME
-from moviepy.audio.io.AudioFileClip import AudioFileClip
-from moviepy.video.io.VideoFileClip import VideoFileClip
 
-
-def clear_and_create_dir(dir_path):
-    if os.path.exists(dir_path):
-        shutil.rmtree(dir_path)
-    os.makedirs(dir_path, exist_ok=True)
-
-
-class MediaClip:
-    def __init__(self, file_path: Optional[str] = None, clip: Optional[Union[VideoFileClip, AudioFileClip]] = None):
-        if file_path is not None:
-            self.__init_file_path(file_path)
-        else:
-            self.__init_clip(clip)
-
-    def __init_clip(self, clip: Union[VideoFileClip, AudioFileClip]):
-        self.clip = clip
-        self.media_type = type(clip)
-        if isinstance(clip, VideoFileClip):
-            self.writer_method = 'write_videofile'
-            self.codec = {"codec": "libx264"}
-        elif isinstance(clip, AudioFileClip):
-            self.writer_method = 'write_audiofile'
-            self.codec = {}
-        else:
-            raise ValueError("Unsupported clip type")
-
-    def __init_file_path(self, file_path):
-        self.file_path = file_path
-        file_name = os.path.basename(file_path)
-        extension = os.path.splitext(file_name)[1].lower()
-        if extension in ['.mp4', '.mov', '.avi']:
-            self.media_type = VideoFileClip
-            self.writer_method = 'write_videofile'
-            self.codec = {"codec": "libx264"}
-        elif extension in ['.mp3', '.wav', '.aac']:
-            self.media_type = AudioFileClip
-            self.writer_method = 'write_audiofile'
-            self.codec = {}
-        else:
-            raise ValueError(f"Unsupported file type: {extension}")
-        self.clip = self.media_type(self.file_path)
-        self.duration = self.clip.duration
-
-    def subclip(self, start_timestamp: float, end_timestamp: float):
-        clip = self.clip.subclip(start_timestamp, end_timestamp)
-        return MediaClip(clip=clip)
-
-    def close(self):
-        self.clip.close()
-
-    def write(self, file_path):
-        writer = getattr(self.clip, self.writer_method)
-        writer(file_path, **self.codec)
+from utils import clear_and_create_dir
 
 
 def cut_media(file_path: str, output_dir_path: str, segments_to_keep: List[Tuple[float, float]]):
@@ -100,3 +46,50 @@ def cut_media(file_path: str, output_dir_path: str, segments_to_keep: List[Tuple
     media_clip.close()
     [segment_clip.close() for segment_clip in segment_clips]
     return media_segments
+
+
+def paste_media_segments(
+    media_segments: List[MediaSegment],
+    output_path: str,
+    start_trim: float = 0.0,
+    end_trim: float = 0.0,
+    transition='crossFadeIn',
+    transition_duration: float = 0.2,
+    use_subbed: bool = False
+) -> None:
+    media_clips = []
+
+    # Load each media segment as a MediaClip, and trim according to start/end margin
+    for segment in media_segments:
+        if segment.subbed_media_file_path is None:
+            print(f'Missing subbed media {segment.subbed_media_file_path}.')
+            continue  # Skip if the subbed path is missing
+
+        if use_subbed:
+            media_clip = MediaClip(file_path=segment.subbed_media_file_path)
+        else:
+            media_clip = MediaClip(file_path=segment.media_file_path)
+        clip_duration = media_clip.clip.duration
+
+        # Determine start and end times for subclipping with trims
+        start_time = max(0.0, start_trim)
+        end_time = max(0.0, clip_duration - end_trim)
+
+        if start_time >= end_time:
+            print(f"Warning: Start trim ({start_time}) is beyond or equal to end trim ({end_time}) for clip '{segment.file_path}'. Skipping this clip.")
+            media_clip.close()
+            continue
+
+        trimmed_clip = media_clip.subclip(start_time, end_time)
+        media_clips.append(trimmed_clip)
+
+    # Ensure we have media clips to stitch
+    if not media_clips:
+        raise ValueError("No media segments found to stitch together.")
+
+    result_media_clip = concatenate_media_clips(media_clips, transition=transition, transition_duration=transition_duration)
+
+    result_media_clip.write(output_path)
+    for media_clip in media_clips:
+        media_clip.close()
+    result_media_clip.close()

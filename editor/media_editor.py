@@ -1,11 +1,14 @@
-import glob
-from objects.media_archive import MediaArchive, Media
+from transcriptions.text_processing import process_special_characters
 from objects.media_segment import MediaSegment, load_media_segments, save_media_segment
-from typing import List, Optional
 import os
+from objects.media_clip import MediaClip
+from utils import align_texts_indices
 from voice_segmentation.voice_activity_detection import VoiceDetector
-from editor.cut_media import cut_media
-from llm.calls import correct_grammar_with_script, get_repetitions
+from editor.cut_media import cut_media, paste_media_segments
+from objects.media_segment import SUBBED_SEGMENTS_DIR_NAME
+from llm.calls import get_repetitions, correct_transcription_text
+from utils import clear_and_create_dir
+from subtitles import process_video_with_subtitles
 from transcriptions.api_client import TranscriptClient
 from objects.transcription import Transcription
 from objects.language import Language
@@ -51,7 +54,15 @@ def cut_video_pauses(
     )
 
 
-def process_transcription(segments: List[MediaSegment], language: str, redo: bool = False) -> List[MediaSegment]:
+def retrieve_segments_transcription(segments: List[MediaSegment], language: str, redo: bool = False) -> List[MediaSegment]:
+    """
+    Retrieve transcriptions for the segments.
+    If the transcription does not exist, it is queried as a task in the TranscriptClient.
+    :param segments: List of video segments
+    :param language: Language for the transcription
+    :param redo: If True, will regenerate Transcriptions from the client.
+    :return: List of video segments with transcriptions.
+    """
     transcript_client = TranscriptClient()
 
     for segment in segments:
@@ -91,23 +102,59 @@ def get_script(file_name: str):
     return None
 
 
-def correct_transcription(file_name: str, segments: List[MediaSegment], redo: bool = False):
-    script = get_script(file_name=file_name)
+def clean_transcription(segments):
     for segment in segments:
-        if segment.grammar_is_checked and not redo:
-            continue
-
-        _, corrected_transcription = correct_grammar_with_script(
+        segment.transcription = process_special_characters(
             transcription=segment.transcription,
-            text=segment.text,
-            script=script,
             language=segment.language
         )
-        corrected_text = " ".join([w.word for w in corrected_transcription.words])
-        print(f"\nCorrection:\nIN: {segment.text}\nOUT: {corrected_text}")
+        segment.corrected_transcription = process_special_characters(
+            transcription=segment.corrected_transcription,
+            language=segment.language
+        )
+        save_media_segment(segment)
 
-        segment.corrected_transcription = corrected_transcription
-        segment.corrected_text = corrected_text
+
+def correct_video_transcription(file_name: str, segments: List[MediaSegment], redo: bool = False):
+    if redo:
+        for segment in segments:
+            segment.grammar_is_checked = False
+            segment.corrected_transcription = None
+            segment.corrected_text = None
+            segment.text = None
+            save_media_segment(segment)
+    
+    script = get_script(file_name=file_name)
+    for segment in segments:
+        if segment.grammar_is_checked and segment.corrected_transcription is not None:
+            continue
+
+        print(f'\n\nCorrecting segment {int(segment.timestamp_start)} - {int(segment.timestamp_end)}:')
+        original_words = [w.word for w in segment.transcription.words]
+        corrected_transcript_text = correct_transcription_text(
+            text=" ".join(original_words),
+            script=script,
+            language=segment.language,
+            preview_fn=MediaClip(segment.media_file_path).preview_audio
+        )
+
+        corrected_words = corrected_transcript_text.split(' ')
+        index_map = align_texts_indices(
+            original_words=[w.word for w in segment.transcription.words],
+            corrected_words=corrected_words
+        )
+
+        corrected_transcription_words = []
+        for original_ind, transcription_word in enumerate(segment.transcription.words):
+            if len(index_map[original_ind]):
+                corresponding_corrected_words = [corrected_words[i] for i in index_map[original_ind]]
+                transcription_word.word = " ".join(corresponding_corrected_words)
+                corrected_transcription_words.append(transcription_word)
+
+        corrected_text = " ".join([w.word for w in corrected_transcription_words])
+        print(f"FINAL VERSION:\n'''\n{corrected_text}\n'''\n")
+
+        segment.corrected_transcription = Transcription(words=corrected_transcription_words)
         segment.grammar_is_checked = True
         save_media_segment(segment)
 
@@ -226,26 +273,44 @@ def filter_file_removed(segments: List[MediaSegment]):
 
 def main(file_name: str, language: str):
     segments = load_media_segments(file_name=file_name)
-    segments = process_transcription(segments, language=language)
-
-    for segment in segments:
-        print(segment.corrected_text)
-        # print(f"{segment.timestamp_start}-{segment.timestamp_end}:\n{segment.text}")
-
-    correct_transcription(file_name=file_name, segments=segments)
+    segments = retrieve_segments_transcription(segments, language=language)
 
     # unfilter(segments)
     # filter_duplicates(segments)
     # manual_filter(segments)
     # manual_recover(segments)
-    filter_file_removed(segments)
+    # filter_file_removed(segments)
 
-    final_segments = [segment for segment in segments if not segment.removed]
-    print("\n\nFinal Video Transcript:")
-    for segment in final_segments:
-        # print(f"{segment.timestamp_start}-{segment.timestamp_end}:\n{segment.corrected_text}")
-        print(segment.corrected_text)
+    segments = [segment for segment in segments if not segment.removed]
+    correct_video_transcription(file_name=file_name, segments=segments)
+    clean_transcription(segments)
 
+    # print("Adding subtitles.")
+    # subbed_videos_dir = os.path.join(RESULT_VIDEOS_DIR, file_name, SUBBED_SEGMENTS_DIR_NAME)
+    # clear_and_create_dir(subbed_videos_dir)
+    # for segment in segments:
+    #     file_path = segment.media_file_path
+    #     result_file_path = os.path.join(subbed_videos_dir, os.path.basename(file_path))
+    #     process_video_with_subtitles(
+    #         input_video_path=file_path,
+    #         output_video_path=result_file_path,
+    #         transcription=segment.corrected_transcription,
+    #         font_size=75,
+    #         h_pos=450,
+    #         subtitles_window=0.65
+    #     )
+    #     segment.subbed_media_file_path = result_file_path
+    #     save_media_segment(segment)
+
+    paste_media_segments(
+        media_segments=segments,
+        output_path=os.path.join(RESULT_VIDEOS_DIR, file_name, "result.mp4"),
+        start_trim=0.0,
+        end_trim=0.4,
+        transition='None',
+        transition_duration=0.1,
+        use_subbed=True
+    )
 
 
 if __name__ == "__main__":

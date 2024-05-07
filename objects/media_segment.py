@@ -11,6 +11,7 @@ RESULT_VIDEOS_DIR = os.getenv("RESULT_VIDEOS_DIR")
 
 SEGMENTS_META_DIR_NAME = "segments_meta"
 SEGMENTS_DIR_NAME = "segments"
+SUBBED_SEGMENTS_DIR_NAME = "subbed_segments"
 
 
 class MediaSegment(BaseModel):
@@ -23,8 +24,10 @@ class MediaSegment(BaseModel):
     text: Optional[str] = None
     corrected_text: Optional[str] = None
     grammar_is_checked: bool = False
+    grammar_is_checked_manual: bool = False
     file_path: str
     media_file_path: str
+    subbed_media_file_path: Optional[str]
     removed: Optional[bool] = False
 
     def to_dict(self):

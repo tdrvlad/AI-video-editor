@@ -11,42 +11,110 @@
 # Respond only with the string 'YES' or 'NO'
 # """
 
+FORMAT_BOOL = """
+Does this response represents a "yes"?:
+'{answer}'
 
-GET_SECTION_FROM_SCRIPT = """
-Here is a section from a transcript of a speech in {language}:
-'''
-{text}
-'''
-This is the raw script that was used as a guidance for the speaker. 
-'''
-{script}
-'''
-The speaker might not have followed the script with 100% accuracy.
+If the response represents an affirmative answer, or a confirmation return 'YES'.
+If the response is inconclusive or does not represent an answer, return "NO"
+If the answer is a negation or you cannot decide, return 'NO'.
 
-Find the section of the script that corresponds to the transcript section.
-Select the section of the script and return it here:
-
-
+Respond only with the YES/NO string without any other text.
 """
+
+GET_SECTION = """
+This is a long text in {language} that contains multiple information:
+'''
+{full_text}
+'''
+We are interested only in the part related to the following part:
+'''
+{query}
+'''
+
+Find the relevant section and return it without any additional text.
+"""
+
+
+CORRECT_TEXT = """
+Your task is to correct errors in the provided transcript, which is in {language}. 
+This transcript was generated automatically and contains mistakes primarily due to confusion between similar-sounding words (homophones).
+
+**Objective**: 
+Analyze the transcript and correct only those words or phrases that are clear misinterpretations of similar-sounding words, ensuring the meaning aligns with what the speaker intended.
+
+**Instructions**:
+1. **Focus on the transcript**: Base your corrections primarily on the transcript
+2. **Maintain original order**: Do not rearrange the words; correct within the existing structure.
+3. **You can use as a guidance the context provided.** 
+
+**Transcript with potential errors**:
+{text}
+
+**Guidance context**:
+
+Return the corrected transcript clearly and concisely without additional commentary.
+"""
+
+
+CORRECT_TEXT_WITH_FEEDBACK = """
+Your task is to correct errors in the provided transcript, which is in {language}. 
+This transcript was generated automatically and contains mistakes primarily due to confusion between similar-sounding words (homophones).
+
+**Objective**: 
+Analyze the transcript and correct only those words or phrases that are clear misinterpretations of similar-sounding words, ensuring the meaning aligns with what the speaker intended.
+
+**Instructions**:
+1. **Focus on the transcript**: Base your corrections primarily on the transcript. Only refer to the speaker's original plan (provided below) if the transcript's errors cannot be resolved through context.
+2. **Maintain original order**: Do not rearrange the words; correct within the existing structure.
+3. **Take into account the feedback provided from the user**
+
+**Transcript with potential errors**:
+{text}
+
+This was an initial correction:
+**Initial correction**:
+{trial}
+
+However, it is not as intended. This is some feedback:
+**Feedback**:
+{feedback}
+
+Return the corrected transcript clearly and concisely without additional commentary.
+"""
+
+
 CORRECT_GRAMMAR_WITH_SCRIPT = """
-Here is a section from a transcript of a speech in {language}:
+This is a transcript of an audio speech in {language} generated with an speech-to-text AI software.
 '''
 {text}
 '''
-There are some mistakes in the transcription, some words were confused with words that sound similar. 
-There might also be grammar mistakes.
 
-Correct the transcription.
+There are some mistakes in the transcript, when the text-to-speech software confused words that sound the same.
+Check the transcript word by word and when it doesn't make sense, correct the appropriate word given the context.
 
-As a guidance, here is the speaker's plan:
+As guidance, you can use the script of the speech that presents the overall ideas:
 '''
 {script}
 '''
-The speaker did not use the plan word by word but you can make out the overall idea in order to decide which is the correct word.
 
-Return the corrected transcription in {language}.
+Stick to the words in the transcript, only correct the ones that do not make sense, according to the plan in the script. 
+Return the corrected transcription in {language} without any additional text.
 """
 
+CORRECT_STRING = """
+Change the following text sentence in {language} according to the instructions:
+{raw_string}
+
+Instruction:
+{instruction}
+
+If not specified in the instruction, keep as in the raw string. 
+Do not change letter casing or meaning if not instructed so.
+Stick to the original string unless explicitly instructed otherwise.
+
+Respond only with the corrected string without any other additional text.
+"""
 
 CORRECT_TRANSCRIPTION = """
 Here is a transcript of a speech in {language}:
